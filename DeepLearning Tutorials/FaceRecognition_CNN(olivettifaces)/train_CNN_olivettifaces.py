@@ -1,15 +1,13 @@
-# -*-coding:utf8-*-#
-"""
+# -*- coding: utf8 -*-
+'''
 本程序基于python+numpy+theano+PIL开发，采用类似LeNet5的CNN模型，应用于olivettifaces人脸数据库，
 实现人脸识别的功能，模型的误差降到了5%以下。
 本程序只是个人学习过程的一个toy implement，模型可能存在overfitting，因为样本小，这一点也无从验证。
-
 但是，本程序意在理清程序开发CNN模型的具体步骤，特别是针对图像识别，从拿到图像数据库，到实现一个针对这个图像数据库的CNN模型，
 我觉得本程序对这些流程的实现具有参考意义。
-
 @author:wepon(http://2hwp.com)
 讲解这份代码的文章：http://blog.csdn.net/u012162613/article/details/43277187
-"""
+'''
 import os
 import sys
 import time
@@ -21,24 +19,27 @@ import theano
 import theano.tensor as T
 from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv
+import pickle
 
 """
 加载图像数据的函数,dataset_path即图像olivettifaces的路径
 加载olivettifaces后，划分为train_data,valid_data,test_data三个数据集
 函数返回train_data,valid_data,test_data以及对应的label
 """
-def load_data(dataset_path):
+
+
+def load_data(dataset_path):  
     img = Image.open(dataset_path)
     img_ndarray = numpy.asarray(img, dtype='float64')/256
     faces=numpy.empty((400,2679))
     for row in range(20):
-	   for column in range(20):
-		faces[row*20+column]=numpy.ndarray.flatten(img_ndarray [row*57:(row+1)*57,column*47:(column+1)*47])
+        for column in range(20):
+            faces[row*20+column]=numpy.ndarray.flatten(img_ndarray [row*57:(row+1)*57,column*47:(column+1)*47])
 
     label=numpy.empty(400)
     for i in range(40):
-	label[i*10:i*10+10]=i
-    label=label.astype(numpy.int)
+        label[i*10:i*10+10]=i
+        label=label.astype(numpy.int)
 
     #分成训练集、验证集、测试集，大小如下
     train_data=numpy.empty((320,2679))
@@ -49,21 +50,17 @@ def load_data(dataset_path):
     test_label=numpy.empty(40)
 
     for i in range(40):
-	train_data[i*8:i*8+8]=faces[i*10:i*10+8]
-	train_label[i*8:i*8+8]=label[i*10:i*10+8]
-	valid_data[i]=faces[i*10+8]
-	valid_label[i]=label[i*10+8]
-	test_data[i]=faces[i*10+9]
-	test_label[i]=label[i*10+9]
+        train_data[i*8:i*8+8]=faces[i*10:i*10+8]
+        train_label[i*8:i*8+8]=label[i*10:i*10+8]
+        valid_data[i]=faces[i*10+8]
+        valid_label[i]=label[i*10+8]
+        test_data[i]=faces[i*10+9]
+        test_label[i]=label[i*10+9]
 
     #将数据集定义成shared类型，才能将数据复制进GPU，利用GPU加速程序。
     def shared_dataset(data_x, data_y, borrow=True):
-        shared_x = theano.shared(numpy.asarray(data_x,
-                                               dtype=theano.config.floatX),
-                                 borrow=borrow)
-        shared_y = theano.shared(numpy.asarray(data_y,
-                                               dtype=theano.config.floatX),
-                                 borrow=borrow)
+        shared_x = theano.shared(numpy.asarray(data_x,dtype='float32'),borrow=borrow)
+        shared_y = theano.shared(numpy.asarray(data_y,dtype='float32'),borrow=borrow)
         return shared_x, T.cast(shared_y, 'int32')
 
 
@@ -76,14 +73,13 @@ def load_data(dataset_path):
     return rval
 
 
-
 #分类器，即CNN最后一层，采用逻辑回归（softmax）
 class LogisticRegression(object):
     def __init__(self, input, n_in, n_out):
         self.W = theano.shared(
             value=numpy.zeros(
                 (n_in, n_out),
-                dtype=theano.config.floatX
+                dtype='float32'
             ),
             name='W',
             borrow=True
@@ -91,7 +87,7 @@ class LogisticRegression(object):
         self.b = theano.shared(
             value=numpy.zeros(
                 (n_out,),
-                dtype=theano.config.floatX
+                dtype='float32'
             ),
             name='b',
             borrow=True
@@ -129,14 +125,14 @@ class HiddenLayer(object):
                     high=numpy.sqrt(6. / (n_in + n_out)),
                     size=(n_in, n_out)
                 ),
-                dtype=theano.config.floatX
+                dtype='float32'
             )
-            if activation == theano.tensor.nnet.sigmoid:
+            if activation == T.nnet.sigmoid:
                 W_values *= 4
             W = theano.shared(value=W_values, name='W', borrow=True)
 
         if b is None:
-            b_values = numpy.zeros((n_out,), dtype=theano.config.floatX)
+            b_values = numpy.zeros((n_out,), dtype='float32')
             b = theano.shared(value=b_values, name='b', borrow=True)
 
         self.W = W
@@ -168,13 +164,13 @@ class LeNetConvPoolLayer(object):
         self.W = theano.shared(
             numpy.asarray(
                 rng.uniform(low=-W_bound, high=W_bound, size=filter_shape),
-                dtype=theano.config.floatX
+                dtype='float32'
             ),
             borrow=True
         )
 
         # the bias is a 1D tensor -- one bias per output feature map
-        b_values = numpy.zeros((filter_shape[0],), dtype=theano.config.floatX)
+        b_values = numpy.zeros((filter_shape[0],), dtype='float32')
         self.b = theano.shared(value=b_values, borrow=True)
 
         # 卷积
@@ -199,14 +195,13 @@ class LeNetConvPoolLayer(object):
 
 
 #保存训练参数的函数
-def save_params(param1,param2,param3,param4):  
-        import cPickle  
-        write_file = open('params.pkl', 'wb')   
-        cPickle.dump(param1, write_file, -1)
-        cPickle.dump(param2, write_file, -1)
-        cPickle.dump(param3, write_file, -1)
-        cPickle.dump(param4, write_file, -1)
-        write_file.close()  
+def save_params(param1,param2,param3,param4):
+    write_file = open('params.pkl','wb')
+    pickle.dump(param1, write_file, -1)
+    pickle.dump(param2, write_file, -1)
+    pickle.dump(param3, write_file, -1)
+    pickle.dump(param4, write_file, -1)
+    write_file.close()  
 
 
 
@@ -251,7 +246,7 @@ def evaluate_olivettifaces(learning_rate=0.05, n_epochs=200,
     #建立CNN模型:
     #input+layer0(LeNetConvPoolLayer)+layer1(LeNetConvPoolLayer)+layer2(HiddenLayer)+layer3(LogisticRegression)
     ######################
-    print '... building the model'
+    print('... building the model')
 
     # Reshape matrix of rasterized images of shape (batch_size, 57 * 47)
     # to a 4D tensor, compatible with our LeNetConvPoolLayer
@@ -346,7 +341,7 @@ def evaluate_olivettifaces(learning_rate=0.05, n_epochs=200,
     ###############
     # 训练CNN阶段，寻找最优的参数。
     ###############
-    print '... training'
+    print('... training')
     #在LeNet5中，batch_size=500,n_train_batches=50000/500=100，patience=10000
     #在olivettifaces中，batch_size=40,n_train_batches=320/40=8, paticence可以相应地设置为800，这个可以根据实际情况调节，调大一点也无所谓
     patience = 800
@@ -365,19 +360,19 @@ def evaluate_olivettifaces(learning_rate=0.05, n_epochs=200,
 
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
-        for minibatch_index in xrange(n_train_batches):
+        for minibatch_index in range(n_train_batches):
 
             iter = (epoch - 1) * n_train_batches + minibatch_index
 
             if iter % 100 == 0:
-                print 'training @ iter = ', iter
+                print('training @ iter = ', iter)
             cost_ij = train_model(minibatch_index)
             
             if (iter + 1) % validation_frequency == 0:
 
                 # compute zero-one loss on validation set
                 validation_losses = [validate_model(i) for i
-                                     in xrange(n_valid_batches)]
+                                     in range(n_valid_batches)]
                 this_validation_loss = numpy.mean(validation_losses)
                 print('epoch %i, minibatch %i/%i, validation error %f %%' %
                       (epoch, minibatch_index + 1, n_train_batches,
@@ -394,18 +389,16 @@ def evaluate_olivettifaces(learning_rate=0.05, n_epochs=200,
                     # save best validation score and iteration number
                     best_validation_loss = this_validation_loss
                     best_iter = iter
-		    save_params(layer0.params,layer1.params,layer2.params,layer3.params)#保存参数
+            save_params(layer0.params,layer1.params,layer2.params,layer3.params)#保存参数
 
-                    # test it on the test set
-                    test_losses = [
-                        test_model(i)
-                        for i in xrange(n_test_batches)
-                    ]
-                    test_score = numpy.mean(test_losses)
-                    print(('     epoch %i, minibatch %i/%i, test error of '
-                           'best model %f %%') %
-                          (epoch, minibatch_index + 1, n_train_batches,
-                           test_score * 100.))
+            # test it on the test set
+            test_losses = [ test_model(i) for i 
+                           in range(n_test_batches)]
+            test_score = numpy.mean(test_losses)
+            print(('epoch %i, minibatch %i/%i, test error of '
+                   'best model %f %%') %
+                  (epoch, minibatch_index + 1, n_train_batches,
+                   test_score * 100.))
 
             if patience <= iter:
                 done_looping = True
@@ -424,4 +417,4 @@ def evaluate_olivettifaces(learning_rate=0.05, n_epochs=200,
 
 
 if __name__ == '__main__':
-	evaluate_olivettifaces()
+    evaluate_olivettifaces()
